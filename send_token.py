@@ -5,11 +5,22 @@ from time import sleep
 import websocket
 from rel import rel
 
-from prepare_wall_packet import send_packet_from_json
+from prepare_wall_packet import send_packet_from_json, packet_from_scene
 
 time_recive = False
 lqst_message_num = "0"
 message_list = []
+waite_responce = True
+
+default_param = {
+    "json_path": "C:/Users/xam74/PycharmProjects/AventOfCode2021/randomTest/fvtt/ply_wall.json",
+    "scene_id": "01hWoyt47nejpWxo",
+    "orignialimage_path": "C:/Users/xam74/Downloads/kokotovillage.png",
+    "scale_dim_x": 3640 * 1.33,
+    "scale_dim_y": 5460 * 1.33,
+    "scene_name": "test scene 2"
+}
+
 
 def on_message(ws, message):
     if "userActivity" in message:
@@ -18,6 +29,7 @@ def on_message(ws, message):
     global time_recive
     global lqst_message_num
     global message_list
+    global waite_responce
 
     try:
 
@@ -29,9 +41,46 @@ def on_message(ws, message):
             time_recive = True
             print("size of the list", len(message_list))
 
-            to_send = message_list.pop(0)
-            send(ws, to_send)
+            if waite_responce:
+                to_send = message_list.pop(0)
+                send(ws, to_send)
+            else:
+                for msg in message_list:
+                    send(ws, msg)
             print("Time recive")
+        else:
+            try:
+                print("debut message ", message[3:100])
+                decoded_message = json.loads(message[3:])[0]
+                scenes = decoded_message.get("scenes", [])
+                wahnted_scenes = None
+                for scene in scenes:
+                    if scene.get("name") == default_param["scene_name"]:
+                        wahnted_scenes = scene
+                        break
+                if wahnted_scenes:
+                    try:
+                        all_packet = packet_from_scene(default_param["json_path"], default_param["orignialimage_path"],
+                                                       wahnted_scenes
+                                                       , default_param["scale_dim_x"],
+                                                       default_param["scale_dim_y"])
+                        for carac in all_packet:
+                            dump_data = ["modifyDocument", carac]
+                            dup = json.dumps(dump_data, ensure_ascii=False)
+                            send(ws, dup)
+                    except Exception as e:
+                        print(f"Error preparing packet: {e}")
+                        print("stack strace", e.__traceback__)
+                    finally:
+                        print("close connection")
+                        ws.close()
+                        rel.stop()
+
+
+
+            except Exception as e:
+                print(f"Error get world info and send packetge: {e}")
+                return
     except Exception as e:
         print(f"Error: {e}")
         print("Time not recive")
@@ -67,23 +116,10 @@ def on_open(ws):
     print("Connection established")
     print(ws)
     send(ws, "40", 0)
+    send(ws, "[\"world\"]", )
     send(ws, "[\"time\"]")
 
-    #temporary
-    json_path = "C:/Users/xam74/PycharmProjects/AventOfCode2021/randomTest/fvtt/ply_wall.json"
-    scene_id = "01hWoyt47nejpWxo"
-    orignialimage_path = "C:/Users/xam74/Downloads/kokotovillage.png"
-    map_dim_x = 3640
-    map_dim_y = 5460
-    character_data = send_packet_from_json(json_path, scene_id,orignialimage_path,map_dim_x,map_dim_y)
-
-    print("size of the list A", len(character_data))
-    for carac in character_data:
-        dump_data = ["modifyDocument", carac]
-        dup = json.dumps(dump_data,ensure_ascii=False)
-        send(ws, dup)
-        #message_list.append(dup)
-    ws.close()
+    character_data = send_packet_from_json(**default_param)
 
     print("size of the list B", len(message_list))
 
@@ -122,6 +158,7 @@ def connect_to_foundry(session):
     rel.dispatch()
     print("after dispatch")
 
+
 def load_env():
     # Load environment variables from .env file
     with open('.env', 'r') as f:
@@ -129,6 +166,21 @@ def load_env():
             key, value = line.strip().split('=')
 
             os.environ[key.upper()] = value
+
+
+def send_token(session, image_path, data, scene_name, scale_dim_x=1, scale_dim_y=1):
+    # Load environment variables from .env file
+    load_env()
+    if not session:
+        session = os.getenv('SESSION')
+    default_param["json_path"] = data
+    default_param["scene_id"] = scene_name
+    default_param["orignialimage_path"] = image_path
+    default_param["scale_dim_x"] = scale_dim_x
+    default_param["scale_dim_y"] = scale_dim_y
+    # Connect to Foundry
+    connect_to_foundry(session)
+
 
 if __name__ == "__main__":
     # Enable debug output

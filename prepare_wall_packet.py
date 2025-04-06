@@ -15,6 +15,7 @@ def load_file(path):
 
 def load_polygon_lines(json_file, min_distance=5,proportion_x=1, proportion_y=1):
     lines = []
+    print("json file keys", json_file.keys())
     for polygon in json_file.get("polygons", {}):
         merged_points = []
         for point in polygon:
@@ -25,12 +26,17 @@ def load_polygon_lines(json_file, min_distance=5,proportion_x=1, proportion_y=1)
                 distance = ((point[0] - last_point[0]) ** 2 + (point[1] - last_point[1]) ** 2) ** 0.5
                 if distance > min_distance:
                     merged_points.append(point)
-
         for i in range(len(merged_points)):
             x1, y1 = merged_points[i]
             x2, y2 = merged_points[(i + 1) % len(merged_points)]
             line = [[x1*proportion_x, y1*proportion_y], [x2*proportion_x, y2*proportion_y]]
             lines.append(line)
+    print("prepqre lines")
+    for line in json_file.get("lines", []):
+        x1, y1 , x2, y2 = line
+        line = [[x1*proportion_x, y1*proportion_y], [x2*proportion_x, y2*proportion_y]]
+        lines.append(line)
+    print("number of lines", len(lines))
     return lines
 
 
@@ -38,6 +44,10 @@ def prepare_packet(json_file,scnene_id,proportion_x=1, proportion_y=1):
     all_messages = []
     min_distance = 20
     lines = load_polygon_lines(json_file,min_distance,proportion_x, proportion_y)
+    min_x = min([line[0][0] for line in lines])
+    min_y = min([line[0][1] for line in lines])
+    max_x = max([line[1][0] for line in lines])
+    max_y = max([line[1][1] for line in lines])
     for i in range(5):
         print(f"Line {i}: {lines[i]}")  # Print the first 5 lines for debugging
     for line in lines:
@@ -75,19 +85,32 @@ def get_image_proportion(orignialimage_path,map_dim_x,map_dim_y):
 
     return proportion_x, proportion_y
 
-def send_packet_from_json(json_path,scene_id,orignialimage_path=None,map_dim_x=None,map_dim_y=None):
+def send_packet_from_json(wall_data, scene_id, orignialimage_path=None, map_dim_x=None, map_dim_y=None):
 
     proportion_x, proportion_y = 1, 1
     if orignialimage_path and map_dim_x and map_dim_y:
         proportion_x, proportion_y = get_image_proportion(orignialimage_path,map_dim_x,map_dim_y)
 
-    print(f"Loading JSON file from {json_path}")
-    json_file = load_file(json_path)
+    json_file = None
+    if isinstance(wall_data, str):
+        print(f"Loading JSON file from {wall_data}")
+        json_file = load_file(wall_data)
+    elif isinstance(wall_data, dict):
+        print("Loading JSON data from dictionary")
+        json_file = wall_data
     if json_file is None:
         print("Failed to load JSON file.")
-        return
+        raise ValueError("Invalid JSON data provided.")
     all_messages = prepare_packet(json_file,scene_id,proportion_x, proportion_y)
     return all_messages
+
+def packet_from_scene(wall_data,original_image,scene,scale_x,scale_y):
+    scene_id = scene.get("_id")
+    width = scene.get("width")*scale_x
+    height = scene.get("height")*scale_y
+    return send_packet_from_json(wall_data, scene_id, original_image, width, height)
+
+
 
 
 if __name__ == "__main__":
