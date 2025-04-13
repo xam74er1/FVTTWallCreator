@@ -256,16 +256,24 @@ class WallLineDetectorApp:
             return current_row + 1  # Return the next available row index
 
         # Add detection sliders to control_frame
+        row_idx = add_slider_control('close_morph', "Close morph", 0, 20, 5, parent_frame=control_frame,
+                                     start_row_idx=row_idx)
+        row_idx = add_slider_control('hat_morph', "Hat morph", 0, 5, 0, parent_frame=control_frame,
+                                     start_row_idx=row_idx)
+        row_idx = add_slider_control('blur', "Blur Kernel", 1, 10, 2, parent_frame=control_frame, start_row_idx=row_idx)
+
         row_idx = add_slider_control('canny1', "Canny Thresh 1", 0, 500, 50, parent_frame=control_frame,
                                      start_row_idx=row_idx)
         row_idx = add_slider_control('canny2', "Canny Thresh 2", 0, 500, 150, parent_frame=control_frame,
                                      start_row_idx=row_idx)
-        row_idx = add_slider_control('epsilon', "Approx. Eps (%)", 0, 1000, 30, is_epsilon=True,
+        row_idx = add_separator(control_frame, row_idx)  # Use helper
+        ttk.Label(control_frame, text="Polygon option", style='Bold.TLabel').grid(row=row_idx, column=0, columnspan=3,
+                                                                           sticky="w", pady=(0, 5))
+        row_idx += 1
+        row_idx = add_slider_control('epsilon', "Approx. Eps (%)", 0, 1000, 0, is_epsilon=True,
                                      parent_frame=control_frame, start_row_idx=row_idx)  # Range 0-100.0%
-        row_idx = add_slider_control('blur', "Blur Kernel", 1, 10, 2, parent_frame=control_frame, start_row_idx=row_idx)
-        row_idx = add_slider_control('morph', "Morph Kernel", 0, 5, 0, parent_frame=control_frame,
-                                     start_row_idx=row_idx)
-        row_idx = add_slider_control('area', "Min Area", 0, 2000, 100, parent_frame=control_frame,
+
+        row_idx = add_slider_control('area', "Min Area", 0, 2000, 1, parent_frame=control_frame,
                                      start_row_idx=row_idx)
 
         row_idx = add_separator(control_frame, row_idx)  # Use helper
@@ -499,6 +507,7 @@ class WallLineDetectorApp:
 
         # Retrieve parameters
         try:
+            close_morph = int(round(float(self.slider_widgets['close_morph']['scale'].get())))
             thresh1 = int(round(float(self.slider_widgets['canny1']['scale'].get())))
             thresh2 = int(round(float(self.slider_widgets['canny2']['scale'].get())))
             # Epsilon value is percentage * 10 on slider, so divide by 1000 (10 * 100)
@@ -508,7 +517,7 @@ class WallLineDetectorApp:
             blur_factor = int(round(float(self.slider_widgets['blur']['scale'].get())))
             kernel_size = max(1, 2 * blur_factor + 1) # Ensure odd kernel size > 0
 
-            morph_factor = int(round(float(self.slider_widgets['morph']['scale'].get())))
+            morph_factor = int(round(float(self.slider_widgets['hat_morph']['scale'].get())))
             morph_size = 2 * morph_factor + 1 if morph_factor > 0 else 0 # Morph size (0 if factor is 0)
 
             min_area = int(round(float(self.slider_widgets['area']['scale'].get())))
@@ -531,16 +540,25 @@ class WallLineDetectorApp:
 
         # --- Image Processing Core ---
         try:
-            gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+            if close_morph > 0:
+                structuring = cv2.getStructuringElement(cv2.MORPH_CROSS, (close_morph, close_morph))
+                strutuing_img = cv2.morphologyEx(self.img, cv2.MORPH_CLOSE, structuring)
+            else:
+                strutuing_img = self.img.copy()
+
+            if morph_size > 0:
+                M = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+                hat = cv2.morphologyEx(strutuing_img, cv2.MORPH_TOPHAT, M)
+            else:
+                hat = strutuing_img.copy()
+
+
+            gray = cv2.cvtColor(hat, cv2.COLOR_BGR2GRAY)
             blurred = cv2.GaussianBlur(gray, (kernel_size, kernel_size), 0)
             edges = cv2.Canny(blurred, thresh1, thresh2)
 
             edges_for_poly = edges.copy()
-            if morph_factor > 0 and morph_size > 0:
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (morph_size, morph_size))
-                # Use closing (dilate then erode) or dilation? Let's stick with dilation for now.
-                edges_for_poly = cv2.dilate(edges_for_poly, kernel, iterations=1)
-                # edges_for_poly = cv2.morphologyEx(edges_for_poly, cv2.MORPH_CLOSE, kernel) # Alternative: Closing
+
 
             # *** Store the intermediate image for the processed view ***
             self.intermediate_processed_img = edges_for_poly.copy()
